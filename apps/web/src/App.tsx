@@ -66,71 +66,71 @@ export default function App() {
   useEffect(() => {
     let mounted = true
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+useEffect(() => {
+  let mounted = true
+
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!mounted) return
+
+    if (session?.user) {
+      // Set user IMMEDIATELY — never block on API call
+      const basicUser = {
+        id: session.user.id,
+        email: session.user.email || '',
+        role: (session.user.user_metadata?.role as UserRole) || 'job_seeker',
+        lang_preference: 'en' as const
+      }
+      setUser(basicUser)
+      setLoading(false) // ← unblock UI NOW
+
+      // Enhance with full profile in background (non-blocking)
+      api.get('/auth/me', {
+        headers: { Authorization: 'Bearer ' + session.access_token }
+      }).then(res => {
+        if (mounted) {
+          setUser(res.data.user)
+          setProfile(res.data.profile)
+        }
+      }).catch(() => {}) // basic user is enough to navigate
+    } else {
+      setLoading(false)
+    }
+  }).catch(() => {
+    if (mounted) setLoading(false)
+  })
+
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (event, session) => {
       if (!mounted) return
-      if (session?.user) {
-        try {
-          const res = await api.get('/auth/me', {
-            headers: { Authorization: 'Bearer ' + session.access_token }
-          })
+
+      if (event === 'SIGNED_IN' && session?.user) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email || '',
+          role: (session.user.user_metadata?.role as UserRole) || 'job_seeker',
+          lang_preference: 'en'
+        })
+        setLoading(false) // ← unblock immediately
+
+        // Background profile fetch
+        api.get('/auth/me', {
+          headers: { Authorization: 'Bearer ' + session.access_token }
+        }).then(res => {
           if (mounted) {
             setUser(res.data.user)
             setProfile(res.data.profile)
-            if (res.data.user?.lang_preference) {
-              i18n.changeLanguage(res.data.user.lang_preference)
-            }
           }
-        } catch {
-          if (mounted) {
-            setUser({
-              id: session.user.id,
-              email: session.user.email || '',
-              role: (session.user.user_metadata?.role as UserRole) || 'job_seeker',
-              lang_preference: 'en'
-            })
-          }
-        }
+        }).catch(() => {})
       }
-      if (mounted) setLoading(false)
-    }).catch(() => {
-      if (mounted) setLoading(false)
-    })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return
-        if (event === 'SIGNED_IN' && session?.user) {
-          try {
-            const res = await api.get('/auth/me', {
-              headers: { Authorization: 'Bearer ' + session.access_token }
-            })
-            if (mounted) {
-              setUser(res.data.user)
-              setProfile(res.data.profile)
-            }
-          } catch {
-            if (mounted) {
-              setUser({
-                id: session.user.id,
-                email: session.user.email || '',
-                role: (session.user.user_metadata?.role as UserRole) || 'job_seeker',
-                lang_preference: 'en'
-              })
-            }
-          }
-        }
-        if (event === 'SIGNED_OUT') {
-          if (mounted) { setUser(null); setProfile(null) }
-        }
-        if (mounted) setLoading(false)
+      if (event === 'SIGNED_OUT') {
+        if (mounted) { setUser(null); setProfile(null); setLoading(false) }
       }
-    )
-
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
     }
-  }, [])
+  )
+
+  return () => { mounted = false; subscription.unsubscribe() }
+}, [])
 
   return (
     <BrowserRouter>
