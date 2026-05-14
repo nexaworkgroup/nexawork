@@ -2,12 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Bookmark } from 'lucide-react'
 import { api } from '../lib/api'
-import JobCard from '../components/jobs/JobCard'
+import JobCard, { Job } from '../components/jobs/JobCard'
 import ApplyModal from '../components/jobs/ApplyModal'
 
 export default function SavedJobsPage() {
   const qc = useQueryClient()
-  const [applyJob, setApplyJob] = useState<any>(null)
+  const [applyJob, setApplyJob] = useState<Job | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['saved-jobs'],
@@ -35,8 +35,12 @@ export default function SavedJobsPage() {
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {saved.map((s: any) => (
-            <JobCard key={s.job_id} job={s.jobs} isSaved onApply={setApplyJob}
-              onSaveToggle={() => qc.invalidateQueries({ queryKey: ['saved-jobs'] })} />
+            <JobCard
+              key={s.job_id}
+              job={s.jobs}
+              onApply={setApplyJob}
+              onSaveToggle={() => qc.invalidateQueries({ queryKey: ['saved-jobs'] })}
+            />
           ))}
         </div>
       )}

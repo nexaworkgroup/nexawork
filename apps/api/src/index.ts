@@ -20,8 +20,12 @@ async function main() {
 
 await app.register(cors, {
   origin: (origin, cb) => {
-    // Allow any localhost port in development
-    if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('vercel.app')) {
+    if (
+      !origin ||
+      origin.includes('localhost') ||
+      origin.includes('nexawork.vercel.app') ||
+      origin.includes('vercel.app')
+    ) {
       cb(null, true)
     } else {
       cb(new Error('Not allowed by CORS'), false)
