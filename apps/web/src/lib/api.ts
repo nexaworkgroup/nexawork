@@ -1,8 +1,9 @@
 import axios from 'axios'
 import { supabase } from './supabase'
 
-// Always use the Vite proxy — no port mismatch ever
-export const api = axios.create({ baseURL: '/api' })
+const API_URL = import.meta.env.VITE_API_URL || 'https://nexawork-api.onrender.com'
+
+export const api = axios.create({ baseURL: API_URL })
 
 api.interceptors.request.use(async (config) => {
   const { data: { session } } = await supabase.auth.getSession()
