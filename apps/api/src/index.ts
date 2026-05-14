@@ -23,8 +23,9 @@ await app.register(cors, {
     if (
       !origin ||
       origin.includes('localhost') ||
-      origin.includes('nexawork.vercel.app') ||
-      origin.includes('vercel.app')
+      origin.includes('127.0.0.1') ||
+      origin.includes('vercel.app') ||
+      origin.includes('onrender.com')
     ) {
       cb(null, true)
     } else {
