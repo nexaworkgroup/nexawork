@@ -9,7 +9,6 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: true,  // ← FAILS instead of switching ports
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

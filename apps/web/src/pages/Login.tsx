@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
-import { useAuthStore, UserRole } from '../store/authStore'
+import { useAuthStore } from '../store/authStore'
 
 export default function LoginPage() {
   const { t } = useTranslation()
@@ -15,42 +15,26 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault()
-  setLoading(true)
-  setError('')
-
-  const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
-    email,
-    password
-  })
-
-  if (authErr) {
-    setError(t('auth.error_invalid'))
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true); setError('')
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password })
+    if (authErr) { setError(t('auth.error_invalid')); setLoading(false); return }
+    try {
+      const res = await api.get('/auth/me')
+      setUser(res.data.user); setProfile(res.data.profile)
+      const role = res.data.user.role
+      const profile = res.data.profile
+      if (role === 'employer') {
+        navigate(profile?.company_name ? '/employer/dashboard' : '/onboarding')
+      } else {
+        navigate(profile?.full_name ? '/dashboard' : '/onboarding')
+      }
+    } catch { setError(t('auth.error_generic')) }
     setLoading(false)
-    return
   }
 
-  // Set user directly from auth response
-  const userRole = (authData.user?.user_metadata?.role as UserRole) || 'job_seeker'
-  setUser({
-    id: authData.user!.id,
-    email: authData.user!.email || email,
-    role: userRole,
-    lang_preference: 'en'
-  })
-
-  setLoading(false)
-
-  // Navigate based on role
-  if (userRole === 'employer') {
-    navigate('/employer/dashboard')
-  } else {
-    navigate('/dashboard')
-  }
-}
   const handleGoogle = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',

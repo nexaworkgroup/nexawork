@@ -12,71 +12,62 @@ import { aiRoutes } from './routes/ai.js'
 import { adminRoutes } from './routes/admin.js'
 import { startScheduler } from './services/scheduler.js'
 
-const app = Fastify({ logger: false })
+const app = Fastify({ logger: process.env.NODE_ENV === 'development' })
 
-async function main() {
-  // ── Plugins ────────────────────────────────────────────────
-  await app.register(helmet, { contentSecurityPolicy: false })
+// ── Plugins ──────────────────────────────────────────────────────
+await app.register(helmet, { contentSecurityPolicy: false })
 
 await app.register(cors, {
-  origin: (origin, cb) => {
-    if (
-      !origin ||
-      origin.includes('localhost') ||
-      origin.includes('127.0.0.1') ||
-      origin.includes('vercel.app') ||
-      origin.includes('onrender.com')
-    ) {
-      cb(null, true)
-    } else {
-      cb(new Error('Not allowed by CORS'), false)
-    }
-  },
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:5173',
+    'https://nexawork.vercel.app',
+    /\.vercel\.app$/
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true
 })
 
-  await app.register(rateLimit, {
-    max: 100,
-    timeWindow: '1 minute',
-    errorResponseBuilder: () => ({ error: 'Too many requests' })
+await app.register(rateLimit, {
+  max: 100,
+  timeWindow: '1 minute',
+  errorResponseBuilder: () => ({ error: 'Too many requests — please slow down' })
+})
+
+// ── Health check ─────────────────────────────────────────────────
+app.get('/health', async () => ({
+  status: 'ok',
+  service: 'NexaWork API',
+  version: '1.0.0',
+  timestamp: new Date().toISOString()
+}))
+
+// ── Routes ───────────────────────────────────────────────────────
+await app.register(authRoutes)
+await app.register(jobsRoutes)
+await app.register(seekerRoutes)
+await app.register(employerRoutes)
+await app.register(aiRoutes)
+await app.register(adminRoutes)
+
+// ── Error handler ─────────────────────────────────────────────────
+app.setErrorHandler((error, _request, reply) => {
+  console.error('API Error:', error)
+  reply.status(error.statusCode ?? 500).send({
+    error: error.message || 'Internal server error'
   })
+})
 
-  // ── Health ─────────────────────────────────────────────────
-  app.get('/health', async () => ({
-    status: 'ok',
-    service: 'NexaWork API',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
-  }))
+// ── Start ────────────────────────────────────────────────────────
+const port = parseInt(process.env.PORT || '3001')
 
-  // ── Routes ─────────────────────────────────────────────────
-  await app.register(authRoutes)
-  await app.register(jobsRoutes)
-  await app.register(seekerRoutes)
-  await app.register(employerRoutes)
-  await app.register(aiRoutes)
-  await app.register(adminRoutes)
-
-  // ── Error handler ──────────────────────────────────────────
-  app.setErrorHandler((error, _request, reply) => {
-    console.error('API Error:', error)
-    reply.status(error.statusCode ?? 500).send({
-      error: error.message || 'Internal server error'
-    })
-  })
-
-  // ── Start ──────────────────────────────────────────────────
-  const port = parseInt(process.env.PORT || '3001')
+try {
   await app.listen({ port, host: '0.0.0.0' })
-
   console.log(`\n🚀 NexaWork API running on http://localhost:${port}`)
   console.log(`📋 Health: http://localhost:${port}/health\n`)
 
+  // Start the aggregation scheduler
   startScheduler()
-}
-
-main().catch((err) => {
-  console.error('Fatal error:', err)
+} catch (err) {
+  app.log.error(err)
   process.exit(1)
-})
+}

@@ -23,38 +23,62 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault()
-  if (password.length < 8) {
-    setError('Password must be at least 8 characters')
-    return
-  }
-  setLoading(true)
-  setError('')
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters')
+      return
+    }
+    setLoading(true)
+    setError('')
 
-  const { data: authData, error: authErr } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { role } }
-  })
+    const { data: authData, error: authErr } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { role } }
+    })
 
-  if (authErr) {
-    setError(authErr.message)
+    if (authErr) {
+      setError(authErr.message)
+      setLoading(false)
+      return
+    }
+
+    // Try to load full profile from API
+    try {
+      const token = authData.session?.access_token
+      if (token) {
+        const res = await api.get('/auth/me', {
+          headers: { Authorization: 'Bearer ' + token }
+        })
+        setUser(res.data.user)
+        setProfile(res.data.profile)
+      } else {
+        // No session yet (email confirmation pending) — set basic user
+        if (authData.user) {
+          setUser({
+            id: authData.user.id,
+            email: authData.user.email || email,
+            role: role as UserRole,
+            lang_preference: 'en'
+          })
+        }
+      }
+    } catch {
+      // API failed — set user from auth data so navigation works
+      if (authData.user) {
+        setUser({
+          id: authData.user.id,
+          email: authData.user.email || email,
+          role: role as UserRole,
+          lang_preference: 'en'
+        })
+      }
+    }
+
     setLoading(false)
-    return
+    navigate('/onboarding')
   }
-
-  // Set user directly from auth response — no API call needed
-  setUser({
-    id: authData.user!.id,
-    email: authData.user!.email || email,
-    role: role as UserRole,
-    lang_preference: 'en'
-  })
-
-  setLoading(false)
-  navigate('/onboarding')
-}
 
   const handleGoogle = async () => {
     await supabase.auth.signInWithOAuth({
