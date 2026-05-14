@@ -1,15 +1,12 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { api } from '../lib/api'
-import { useAuthStore } from '../store/authStore'
+import { useAuthStore, UserRole } from '../store/authStore'
 
 export default function LoginPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { setUser, setProfile } = useAuthStore()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPass, setShowPass] = useState(false)
@@ -18,52 +15,57 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true); setError('')
-    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password })
-    if (authErr) { setError(t('auth.error_invalid')); setLoading(false); return }
+    setLoading(true)
+    setError('')
+
     try {
-      const res = await api.get('/auth/me')
-      setUser(res.data.user); setProfile(res.data.profile)
-      const role = res.data.user.role
-      const profile = res.data.profile
-      if (role === 'employer') {
-        navigate(profile?.company_name ? '/employer/dashboard' : '/onboarding')
-      } else {
-        navigate(profile?.full_name ? '/dashboard' : '/onboarding')
-      }
-    } catch { setError(t('auth.error_generic')) }
-    setLoading(false)
+      const { data, error: authErr } = await supabase.auth.signInWithPassword({ email, password })
+      if (authErr) throw authErr
+      if (!data.user) throw new Error('No user returned')
+
+      const userRole = (data.user.user_metadata?.role as UserRole) || 'job_seeker'
+
+      useAuthStore.getState().setUser({
+        id: data.user.id,
+        email: data.user.email || email,
+        role: userRole,
+        lang_preference: 'en'
+      })
+      useAuthStore.getState().setLoading(false)
+
+      // Hard navigate
+      window.location.href = userRole === 'employer' ? '/employer/dashboard' : '/dashboard'
+    } catch (err: any) {
+      setError(err.message || t('auth.error_invalid'))
+      setLoading(false)
+    }
   }
 
   const handleGoogle = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/dashboard` }
+      options: { redirectTo: window.location.origin + '/dashboard' }
     })
   }
 
   return (
     <div className="min-h-screen bg-surface flex">
-      {/* Left panel */}
       <div className="hidden lg:flex flex-col justify-between w-1/2 bg-brand-green p-12 text-white">
-        <Link to="/" className="flex items-center gap-2 text-green-200 hover:text-white transition-colors">
+        <Link to="/" className="flex items-center gap-2 text-green-200 hover:text-white">
           <ArrowLeft size={18} /> Back to home
         </Link>
         <div>
           <p className="text-5xl font-bold leading-tight mb-4">
-            Welcome<br />back to<br />
-            <span className="text-brand-gold">NexaWork</span>
+            Welcome<br />back to<br /><span className="text-brand-gold">NexaWork</span>
           </p>
           <p className="text-green-200 text-lg">Africa's smartest job platform</p>
         </div>
         <p className="text-green-300 text-sm">"Your First Job Finds You"</p>
       </div>
 
-      {/* Right panel */}
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
-          {/* Mobile back */}
-          <Link to="/" className="lg:hidden flex items-center gap-1 text-sm text-gray-400 mb-6 hover:text-brand-green">
+          <Link to="/" className="lg:hidden flex items-center gap-1 text-sm text-gray-400 mb-6">
             <ArrowLeft size={16} /> Home
           </Link>
           <div className="mb-8">
@@ -84,10 +86,11 @@ export default function LoginPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('auth.password')}</label>
               <div className="relative">
-                <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                <input type={showPass ? 'text' : 'password'} value={password}
+                  onChange={e => setPassword(e.target.value)}
                   className="input-field pr-10" placeholder="••••••••" required />
                 <button type="button" onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                   {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
@@ -103,7 +106,8 @@ export default function LoginPage() {
             <span className="flex-1 h-px bg-gray-200" />
           </div>
 
-          <button onClick={handleGoogle} className="w-full flex items-center justify-center gap-3 border border-gray-200 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors">
+          <button onClick={handleGoogle}
+            className="w-full flex items-center justify-center gap-3 border border-gray-200 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50">
             <img src="https://www.google.com/favicon.ico" alt="" className="w-4 h-4" />
             {t('auth.google')}
           </button>

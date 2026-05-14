@@ -1,9 +1,8 @@
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Eye, EyeOff, ArrowLeft, Briefcase, User } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { api } from '../lib/api'
 import { useAuthStore, UserRole } from '../store/authStore'
 import { clsx } from 'clsx'
 
@@ -11,9 +10,7 @@ type Role = 'job_seeker' | 'employer'
 
 export default function RegisterPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const [params] = useSearchParams()
-  const { setUser, setProfile } = useAuthStore()
   const [role, setRole] = useState<Role>(
     params.get('role') === 'employer' ? 'employer' : 'job_seeker'
   )
@@ -32,52 +29,31 @@ export default function RegisterPage() {
     setLoading(true)
     setError('')
 
-    const { data: authData, error: authErr } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { role } }
-    })
-
-    if (authErr) {
-      setError(authErr.message)
-      setLoading(false)
-      return
-    }
-
-    // Try to load full profile from API
     try {
-      const token = authData.session?.access_token
-      if (token) {
-        const res = await api.get('/auth/me', {
-          headers: { Authorization: 'Bearer ' + token }
-        })
-        setUser(res.data.user)
-        setProfile(res.data.profile)
-      } else {
-        // No session yet (email confirmation pending) — set basic user
-        if (authData.user) {
-          setUser({
-            id: authData.user.id,
-            email: authData.user.email || email,
-            role: role as UserRole,
-            lang_preference: 'en'
-          })
-        }
-      }
-    } catch {
-      // API failed — set user from auth data so navigation works
-      if (authData.user) {
-        setUser({
-          id: authData.user.id,
-          email: authData.user.email || email,
-          role: role as UserRole,
-          lang_preference: 'en'
-        })
-      }
-    }
+      const { data, error: authErr } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { role } }
+      })
 
-    setLoading(false)
-    navigate('/onboarding')
+      if (authErr) throw authErr
+      if (!data.user) throw new Error('Signup failed — no user returned')
+
+      // Set user in store directly from response — no API call needed
+      useAuthStore.getState().setUser({
+        id: data.user.id,
+        email: data.user.email || email,
+        role: role as UserRole,
+        lang_preference: 'en'
+      })
+      useAuthStore.getState().setLoading(false)
+
+      // Hard navigate — resets app state, avoids React Router edge cases
+      window.location.href = '/onboarding'
+    } catch (err: any) {
+      setError(err.message || 'Registration failed')
+      setLoading(false)
+    }
   }
 
   const handleGoogle = async () => {
@@ -93,13 +69,12 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-surface flex">
       <div className="hidden lg:flex flex-col justify-between w-1/2 bg-brand-green p-12 text-white">
-        <Link to="/" className="flex items-center gap-2 text-green-200 hover:text-white transition-colors">
+        <Link to="/" className="flex items-center gap-2 text-green-200 hover:text-white">
           <ArrowLeft size={18} /> Back to home
         </Link>
         <div>
           <p className="text-5xl font-bold leading-tight mb-4">
-            Start your<br />career journey<br />
-            <span className="text-brand-gold">today</span>
+            Start your<br />career journey<br /><span className="text-brand-gold">today</span>
           </p>
           <p className="text-green-200 text-lg">No CV required. No experience needed.</p>
         </div>
@@ -108,7 +83,7 @@ export default function RegisterPage() {
 
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
-          <Link to="/" className="lg:hidden flex items-center gap-1 text-sm text-gray-400 mb-6 hover:text-brand-green">
+          <Link to="/" className="lg:hidden flex items-center gap-1 text-sm text-gray-400 mb-6">
             <ArrowLeft size={16} /> Home
           </Link>
 
@@ -123,12 +98,10 @@ export default function RegisterPage() {
               { val: 'job_seeker' as Role, icon: User, label: t('auth.role_seeker'), desc: t('auth.role_seeker_desc') },
               { val: 'employer' as Role, icon: Briefcase, label: t('auth.role_employer'), desc: t('auth.role_employer_desc') },
             ]).map(({ val, icon: Icon, label, desc }) => (
-              <button key={val} onClick={() => setRole(val)}
+              <button key={val} type="button" onClick={() => setRole(val)}
                 className={clsx(
                   'flex flex-col items-center p-4 rounded-xl border-2 transition-all text-center',
-                  role === val
-                    ? 'border-brand-green bg-brand-green-light'
-                    : 'border-gray-200 hover:border-gray-300'
+                  role === val ? 'border-brand-green bg-brand-green-light' : 'border-gray-200'
                 )}>
                 <Icon size={24} className={role === val ? 'text-brand-green' : 'text-gray-400'} />
                 <span className={clsx('text-sm font-semibold mt-2', role === val ? 'text-brand-green' : 'text-gray-700')}>{label}</span>
@@ -154,7 +127,7 @@ export default function RegisterPage() {
                   onChange={e => setPassword(e.target.value)}
                   className="input-field pr-10" placeholder="Min. 8 characters" required minLength={8} />
                 <button type="button" onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                   {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
@@ -171,7 +144,7 @@ export default function RegisterPage() {
           </div>
 
           <button onClick={handleGoogle}
-            className="w-full flex items-center justify-center gap-3 border border-gray-200 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors">
+            className="w-full flex items-center justify-center gap-3 border border-gray-200 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50">
             <img src="https://www.google.com/favicon.ico" alt="" className="w-4 h-4" />
             {t('auth.google')}
           </button>
