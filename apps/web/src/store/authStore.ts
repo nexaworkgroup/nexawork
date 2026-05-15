@@ -12,13 +12,12 @@ export interface AuthUser {
 }
 
 export interface Profile {
-  id: string
-  user_id: string
+  id?: string
+  user_id?: string
   full_name?: string
   avatar_url?: string
   location?: string
   profile_strength?: number
-  // seeker
   degree?: string
   field_of_study?: string
   institution?: string
@@ -26,7 +25,6 @@ export interface Profile {
   bio?: string
   cv_url?: string
   is_open_to_work?: boolean
-  // employer
   company_name?: string
   logo_url?: string
   industry?: string
@@ -44,15 +42,14 @@ interface AuthState {
   setProfile: (profile: Profile | null) => void
   setLoading: (loading: boolean) => void
   signOut: () => Promise<void>
-  refreshProfile: () => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
       profile: null,
-      loading: true,
+      loading: false,  // Start false — never block on load
 
       setUser: (user) => set({ user }),
       setProfile: (profile) => set({ profile }),
@@ -60,19 +57,7 @@ export const useAuthStore = create<AuthState>()(
 
       signOut: async () => {
         await supabase.auth.signOut()
-        set({ user: null, profile: null })
-      },
-
-      refreshProfile: async () => {
-        const { user } = get()
-        if (!user) return
-        try {
-          const { api } = await import('../lib/api')
-          const res = await api.get('/auth/me')
-          set({ user: res.data.user, profile: res.data.profile })
-        } catch (e) {
-          console.error('Failed to refresh profile', e)
-        }
+        set({ user: null, profile: null, loading: false })
       }
     }),
     {
