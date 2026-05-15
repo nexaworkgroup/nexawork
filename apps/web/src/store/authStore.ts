@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import { supabase } from '../lib/supabase'
 
 export type UserRole = 'job_seeker' | 'employer' | 'admin'
@@ -37,32 +36,27 @@ export interface Profile {
 interface AuthState {
   user: AuthUser | null
   profile: Profile | null
-  loading: boolean
+  initialized: boolean
   setUser: (user: AuthUser | null) => void
   setProfile: (profile: Profile | null) => void
-  setLoading: (loading: boolean) => void
+  setInitialized: (v: boolean) => void
   signOut: () => Promise<void>
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      user: null,
-      profile: null,
-      loading: false,  // Start false — never block on load
+// NO persist — state is always rebuilt from Supabase session on load
+// This eliminates all stale cache issues
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  profile: null,
+  initialized: false,
 
-      setUser: (user) => set({ user }),
-      setProfile: (profile) => set({ profile }),
-      setLoading: (loading) => set({ loading }),
+  setUser: (user) => set({ user }),
+  setProfile: (profile) => set({ profile }),
+  setInitialized: (initialized) => set({ initialized }),
 
-      signOut: async () => {
-        await supabase.auth.signOut()
-        set({ user: null, profile: null, loading: false })
-      }
-    }),
-    {
-      name: 'nexawork-auth',
-      partialize: (state) => ({ user: state.user, profile: state.profile })
-    }
-  )
-)
+  signOut: async () => {
+    await supabase.auth.signOut()
+    set({ user: null, profile: null })
+    window.location.href = '/'
+  }
+}))

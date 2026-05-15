@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Eye, EyeOff, ArrowLeft, Briefcase, User } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -10,7 +10,11 @@ type Role = 'job_seeker' | 'employer'
 
 export default function RegisterPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [params] = useSearchParams()
+  const { setUser, setInitialized } = useAuthStore()
+  const submitting = useRef(false) // Prevent double submission
+
   const [role, setRole] = useState<Role>(
     params.get('role') === 'employer' ? 'employer' : 'job_seeker'
   )
@@ -22,14 +26,17 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters')
-      return
-    }
+    if (submitting.current) return // Block double submission
+    if (password.length < 8) { setError('Password must be at least 8 characters'); return }
+
+    submitting.current = true
     setLoading(true)
     setError('')
 
     try {
+      // Sign out any existing session first to avoid state conflicts
+      await supabase.auth.signOut()
+
       const { data, error: authErr } = await supabase.auth.signUp({
         email,
         password,
@@ -37,44 +44,36 @@ export default function RegisterPage() {
       })
 
       if (authErr) throw authErr
-      if (!data.user) throw new Error('Signup failed — no user returned')
+      if (!data.user) throw new Error('Registration failed')
 
-      // Set user in store directly from response — no API call needed
-      useAuthStore.getState().setUser({
+      // Set user in store
+      setUser({
         id: data.user.id,
         email: data.user.email || email,
         role: role as UserRole,
         lang_preference: 'en'
       })
-      useAuthStore.getState().setLoading(false)
+      setInitialized(true)
 
-      // Hard navigate — resets app state, avoids React Router edge cases
-      window.location.href = '/onboarding'
+      // Navigate with React Router (no hard reload)
+      navigate('/onboarding', { replace: true })
     } catch (err: any) {
-      setError(err.message || 'Registration failed')
+      setError(err.message || 'Registration failed. Please try again.')
       setLoading(false)
+      submitting.current = false
     }
-  }
-
-  const handleGoogle = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin + '/onboarding',
-        queryParams: { role }
-      }
-    })
   }
 
   return (
     <div className="min-h-screen bg-surface flex">
       <div className="hidden lg:flex flex-col justify-between w-1/2 bg-brand-green p-12 text-white">
-        <Link to="/" className="flex items-center gap-2 text-green-200 hover:text-white">
+        <Link to="/" className="flex items-center gap-2 text-green-200 hover:text-white transition-colors">
           <ArrowLeft size={18} /> Back to home
         </Link>
         <div>
           <p className="text-5xl font-bold leading-tight mb-4">
-            Start your<br />career journey<br /><span className="text-brand-gold">today</span>
+            Start your<br />career journey<br />
+            <span className="text-brand-gold">today</span>
           </p>
           <p className="text-green-200 text-lg">No CV required. No experience needed.</p>
         </div>
@@ -83,10 +82,9 @@ export default function RegisterPage() {
 
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
-          <Link to="/" className="lg:hidden flex items-center gap-1 text-sm text-gray-400 mb-6">
+          <Link to="/" className="lg:hidden flex items-center gap-1 text-sm text-gray-400 mb-6 hover:text-brand-green">
             <ArrowLeft size={16} /> Home
           </Link>
-
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">{t('auth.register_title')}</h1>
             <p className="text-gray-400 mt-1">{t('auth.register_subtitle')}</p>
@@ -101,7 +99,7 @@ export default function RegisterPage() {
               <button key={val} type="button" onClick={() => setRole(val)}
                 className={clsx(
                   'flex flex-col items-center p-4 rounded-xl border-2 transition-all text-center',
-                  role === val ? 'border-brand-green bg-brand-green-light' : 'border-gray-200'
+                  role === val ? 'border-brand-green bg-brand-green-light' : 'border-gray-200 hover:border-gray-300'
                 )}>
                 <Icon size={24} className={role === val ? 'text-brand-green' : 'text-gray-400'} />
                 <span className={clsx('text-sm font-semibold mt-2', role === val ? 'text-brand-green' : 'text-gray-700')}>{label}</span>
@@ -118,16 +116,22 @@ export default function RegisterPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('auth.email')}</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                className="input-field" placeholder="you@example.com" required />
+                className="input-field" placeholder="you@example.com" required autoComplete="email" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('auth.password')}</label>
               <div className="relative">
-                <input type={showPass ? 'text' : 'password'} value={password}
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="input-field pr-10" placeholder="Min. 8 characters" required minLength={8} />
+                  className="input-field pr-10"
+                  placeholder="Min. 8 characters"
+                  required minLength={8}
+                  autoComplete="new-password"
+                />
                 <button type="button" onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
@@ -136,18 +140,6 @@ export default function RegisterPage() {
               {loading ? 'Creating account…' : t('auth.sign_up')}
             </button>
           </form>
-
-          <div className="my-5 flex items-center gap-3">
-            <span className="flex-1 h-px bg-gray-200" />
-            <span className="text-xs text-gray-400">or</span>
-            <span className="flex-1 h-px bg-gray-200" />
-          </div>
-
-          <button onClick={handleGoogle}
-            className="w-full flex items-center justify-center gap-3 border border-gray-200 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50">
-            <img src="https://www.google.com/favicon.ico" alt="" className="w-4 h-4" />
-            {t('auth.google')}
-          </button>
 
           <p className="text-center text-sm text-gray-400 mt-6">
             {t('auth.have_account')}{' '}

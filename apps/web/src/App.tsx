@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
 import { supabase } from './lib/supabase'
 import { api } from './lib/api'
 import { useAuthStore, UserRole } from './store/authStore'
@@ -33,26 +32,26 @@ function FullPageLoader() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuthStore()
-  if (loading) return <FullPageLoader />
+  const { user, initialized } = useAuthStore()
+  if (!initialized) return <FullPageLoader />
   if (!user) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 
 function RequireOnboarding({ children }: { children: React.ReactNode }) {
-  const { user, profile, loading } = useAuthStore()
-  if (loading) return <FullPageLoader />
+  const { user, profile, initialized } = useAuthStore()
+  if (!initialized) return <FullPageLoader />
   if (!user) return <Navigate to="/login" replace />
-  const isComplete = user.role === 'job_seeker'
+  const done = user.role === 'job_seeker'
     ? !!(profile as any)?.full_name
     : !!(profile as any)?.company_name
-  if (!isComplete) return <Navigate to="/onboarding" replace />
+  if (!done) return <Navigate to="/onboarding" replace />
   return <>{children}</>
 }
 
 function RequireEmployer({ children }: { children: React.ReactNode }) {
-  const { user, profile, loading } = useAuthStore()
-  if (loading) return <FullPageLoader />
+  const { user, profile, initialized } = useAuthStore()
+  if (!initialized) return <FullPageLoader />
   if (!user) return <Navigate to="/login" replace />
   if (user.role !== 'employer') return <Navigate to="/dashboard" replace />
   if (!(profile as any)?.company_name) return <Navigate to="/onboarding" replace />
@@ -60,91 +59,68 @@ function RequireEmployer({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { setUser, setProfile, setLoading } = useAuthStore()
-  const { i18n } = useTranslation()
+  const { setUser, setProfile, setInitialized } = useAuthStore()
 
   useEffect(() => {
-    let mounted = true
+    // Single source of truth: Supabase session
+    // This runs on every page load/refresh and rebuilds state cleanly
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
 
-useEffect(() => {
-  let mounted = true
-
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    if (!mounted) return
-
-    if (session?.user) {
-      // Set user IMMEDIATELY — never block on API call
-      const basicUser = {
-        id: session.user.id,
-        email: session.user.email || '',
-        role: (session.user.user_metadata?.role as UserRole) || 'job_seeker',
-        lang_preference: 'en' as const
-      }
-      setUser(basicUser)
-      setLoading(false) // ← unblock UI NOW
-
-      // Enhance with full profile in background (non-blocking)
-      api.get('/auth/me', {
-        headers: { Authorization: 'Bearer ' + session.access_token }
-      }).then(res => {
-        if (mounted) {
-          setUser(res.data.user)
-          setProfile(res.data.profile)
-        }
-      }).catch(() => {}) // basic user is enough to navigate
-    } else {
-      setLoading(false)
-    }
-  }).catch(() => {
-    if (mounted) setLoading(false)
-  })
-
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    (event, session) => {
-      if (!mounted) return
-
-      if (event === 'SIGNED_IN' && session?.user) {
-        setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          role: (session.user.user_metadata?.role as UserRole) || 'job_seeker',
-          lang_preference: 'en'
-        })
-        setLoading(false) // ← unblock immediately
-
-        // Background profile fetch
-        api.get('/auth/me', {
-          headers: { Authorization: 'Bearer ' + session.access_token }
-        }).then(res => {
-          if (mounted) {
-            setUser(res.data.user)
-            setProfile(res.data.profile)
+        if (session?.user) {
+          // Set basic user immediately from session token
+          const basicUser = {
+            id: session.user.id,
+            email: session.user.email || '',
+            role: (session.user.user_metadata?.role as UserRole) || 'job_seeker',
+            lang_preference: 'en' as const
           }
-        }).catch(() => {})
-      }
+          setUser(basicUser)
 
-      if (event === 'SIGNED_OUT') {
-        if (mounted) { setUser(null); setProfile(null); setLoading(false) }
+          // Load full profile from API in background (non-blocking)
+          api.get('/auth/me', {
+            headers: { Authorization: 'Bearer ' + session.access_token }
+          }).then(res => {
+            if (res.data.user) setUser(res.data.user)
+            if (res.data.profile) setProfile(res.data.profile)
+          }).catch(() => {
+            // Basic user is enough to navigate — profile loads on dashboard
+          })
+        }
+      } catch (err) {
+        console.error('Auth init error:', err)
+      } finally {
+        // Always mark initialized — unblocks route guards
+        setInitialized(true)
       }
     }
-  )
 
-  return () => { mounted = false; subscription.unsubscribe() }
-}, [])
+    initAuth()
+
+    // Listen for sign out events only
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null)
+        setProfile(null)
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
 
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/jobs/:id" element={<JobDetailPage />} />
 
-        {/* Onboarding */}
-        <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
+        <Route path="/onboarding" element={
+          <RequireAuth><OnboardingPage /></RequireAuth>
+        } />
 
-        {/* Seeker app */}
         <Route element={<RequireOnboarding><AppLayout /></RequireOnboarding>}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/jobs" element={<JobsPage />} />
@@ -154,7 +130,6 @@ useEffect(() => {
           <Route path="/profile" element={<ProfilePage />} />
         </Route>
 
-        {/* Employer app */}
         <Route element={<RequireEmployer><AppLayout /></RequireEmployer>}>
           <Route path="/employer/dashboard" element={<EmployerDashboard />} />
           <Route path="/employer/jobs/new" element={<PostJobPage />} />
@@ -163,8 +138,6 @@ useEffect(() => {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-
-      {/* Floating AI Assistant — visible everywhere when logged in */}
       <FloatingChat />
     </BrowserRouter>
   )
